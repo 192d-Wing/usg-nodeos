@@ -1,0 +1,30 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Local build logs / scratch / generated outputs
+/work/
+/outputs/
+
+# Agent / tooling scratch dirs
+/.codex/
+/.agents/
+
+# Buildroot / QEMU local artifacts (normally under ~/.cache, but ignore if they
+# ever land in-tree)
+*.img
+*.qcow2
+OVMF_VARS*.fd
+tpmstate/
+rootfs.cpio
+bzImage
+
+# Node identity / secrets that must never be committed (the enrolled PKI lives on
+# the node's encrypted volume at runtime, not in the repo)
+*.pem.key
+*-luks.key
+pkcs11.pin
+
+# Editor / OS cruft
+*.swp
+.DS_Store

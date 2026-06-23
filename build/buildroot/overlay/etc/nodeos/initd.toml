@@ -1,0 +1,88 @@
+requiredDirs = [
+  "/run",
+  "/tmp",
+  "/var/lib/nodeos",
+  "/var/lib/kubelet",
+  "/var/lib/containerd",
+  "/var/log",
+]
+
+# Bring up loopback (so the API can bind ::1) and the primary NIC; the kernel
+# then autoconfigures IPv6 on eth0 via SLAAC (router advertisements).
+interfaces = ["lo", "eth0"]
+
+[[mounts]]
+source = "devtmpfs"
+target = "/dev"
+fstype = "devtmpfs"
+flags = ["nosuid"]
+data = "mode=0755"
+
+[[mounts]]
+source = "proc"
+target = "/proc"
+fstype = "proc"
+flags = ["nodev", "nosuid", "noexec"]
+
+[[mounts]]
+source = "sysfs"
+target = "/sys"
+fstype = "sysfs"
+flags = ["nodev", "nosuid", "noexec"]
+
+[[mounts]]
+source = "run"
+target = "/run"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid", "noexec"]
+data = "mode=0755,size=64m"
+
+[[mounts]]
+source = "tmp"
+target = "/tmp"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid", "noexec"]
+data = "mode=1777,size=128m"
+
+[[mounts]]
+source = "kubelet-state"
+target = "/var/lib/kubelet"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid"]
+data = "mode=0750,size=256m"
+
+[[mounts]]
+source = "containerd-state"
+target = "/var/lib/containerd"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid"]
+data = "mode=0750,size=512m"
+
+[[mounts]]
+source = "logs"
+target = "/var/log"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid", "noexec"]
+data = "mode=0755,size=128m"
+
+# Persistent node-state volume: holds the enrolled PKI across reboots so the
+# node bootstraps once and renews thereafter. LUKS2-encrypted with the key held
+# in the TPM (NV index); formatted ext4 on first boot. vda1 is the ESP (UEFI
+# boot), vda2 is this state partition.
+[[disks]]
+device = "/dev/vda2"
+target = "/var/lib/nodeos"
+fstype = "ext4"
+flags = ["nodev", "nosuid"]
+formatIfEmpty = true
+mkfs = ["/sbin/mkfs.ext4", "-q", "-F"]
+# pcrs binds the key to measured boot: PCR 4 = the EFI-stub kernel (with its
+# embedded initramfs + cmdline) that OVMF loaded; PCR 7 = secure-boot state.
+# The volume only unlocks when these match the provisioning-time values.
+encrypt = { name = "nodeos-state", tpmNvIndex = "0x01500001", pcrs = "sha256:4,7" }
+
+[[services]]
+name = "noded"
+command = "/usr/bin/noded"
+args = ["/etc/nodeos/noded.yaml"]
+restart = "always"

@@ -1,0 +1,56 @@
+requiredDirs = [
+  "/run",
+  "/tmp",
+  "/var/lib/nodeos",
+  "/var/lib/kubelet",
+  "/var/lib/containerd",
+  "/var/log",
+]
+
+[[mounts]]
+source = "run"
+target = "/run"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid", "noexec"]
+data = "mode=0755,size=64m"
+
+[[mounts]]
+source = "tmp"
+target = "/tmp"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid", "noexec"]
+data = "mode=1777,size=128m"
+
+[[mounts]]
+source = "nodeos-state"
+target = "/var/lib/nodeos"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid"]
+data = "mode=0750,size=64m"
+
+[[mounts]]
+source = "kubelet-state"
+target = "/var/lib/kubelet"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid"]
+data = "mode=0750,size=256m"
+
+[[mounts]]
+source = "containerd-state"
+target = "/var/lib/containerd"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid"]
+data = "mode=0750,size=512m"
+
+[[mounts]]
+source = "logs"
+target = "/var/log"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid", "noexec"]
+data = "mode=0755,size=128m"
+
+[[services]]
+name = "noded"
+command = "/usr/bin/noded"
+args = ["/etc/nodeos/noded.toml"]
+restart = "always"

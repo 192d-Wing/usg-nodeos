@@ -1,0 +1,11 @@
+listenAddr = "[::1]:9443"
+nodeId = "dev-node-001"
+certFile = "certs/server.crt"
+keyFile = "certs/server.key"
+clientCa = "certs/client-ca.crt"
+
+[enrollment.est]
+serverUrl = "https://[2001:db8::10]/.well-known/est"
+bearerToken = "replace-with-bootstrap-token"
+caCertFile = "certs/est-ca.crt"
+label = "node"

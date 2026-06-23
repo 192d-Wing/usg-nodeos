@@ -1,0 +1,34 @@
+BR2_x86_64=y
+# Pin toolchain kernel headers to 6.18 (not "same as kernel"): the running kernel
+# is 7.1, but glibc is built against 6.18 UAPI headers (older headers on a newer
+# kernel is fine, and this avoids a toolchain rebuild).
+BR2_KERNEL_HEADERS_6_18=y
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
+BR2_GLOBAL_PATCH_DIR="board/qemu/patches"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_INIT_NONE=y
+BR2_SYSTEM_BIN_SH_NONE=y
+BR2_PACKAGE_BUSYBOX=n
+# e2fsprogs provides mkfs.ext4 so initd can format the persistent state volume
+# on first boot (no shell/package manager needed; called directly by initd).
+BR2_PACKAGE_E2FSPROGS=y
+BR2_PACKAGE_E2FSPROGS_MKE2FS=y
+# LUKS + TPM2 stack for the encrypted, TPM-sealed state volume (driven by initd
+# via direct exec, not a shell). cryptsetup = dm-crypt/LUKS; tpm2-tools = seal/
+# unseal with PCR policy; tpm2-pkcs11 = TPM-resident EST key for noded.
+BR2_PACKAGE_CRYPTSETUP=y
+BR2_PACKAGE_TPM2_TSS=y
+BR2_PACKAGE_TPM2_TOOLS=y
+BR2_PACKAGE_TPM2_PKCS11=y
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="7.1"
+BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="board/qemu/x86_64/linux.config"
+BR2_LINUX_KERNEL_NEEDS_HOST_LIBELF=y
+BR2_TARGET_ROOTFS_CPIO=y
+BR2_TARGET_ROOTFS_INITRAMFS=y
+# BR2_TARGET_ROOTFS_TAR is not set
+BR2_ROOTFS_OVERLAY="build/buildroot/overlay"
+BR2_ROOTFS_POST_BUILD_SCRIPT="build/buildroot/post-build.sh"

@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package node.v1;
+
+option go_package = "example.com/nodeos/api/node/v1;nodev1";
+
+service NodeService {
+  rpc GetHealth(GetHealthRequest) returns (GetHealthResponse);
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  rpc ApplyConfig(ApplyConfigRequest) returns (ApplyConfigResponse);
+}
+
+message GetHealthRequest {}
+
+message GetHealthResponse {
+  string status = 1;
+  string node_id = 2;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  string node_id = 1;
+  string os_version = 2;
+  string kernel_version = 3;
+  bool immutable_root = 4;
+  bool ssh_present = 5;
+  bool shell_present = 6;
+  bool package_manager_present = 7;
+}
+
+message ApplyConfigRequest {
+  bytes config = 1;
+  string content_type = 2;
+  string request_id = 3;
+}
+
+message ApplyConfigResponse {
+  bool accepted = 1;
+  string reason = 2;
+}
+

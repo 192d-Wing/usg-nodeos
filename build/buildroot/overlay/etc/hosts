@@ -1,0 +1,7 @@
+# Test convenience for the QEMU enrollment run: resolve the EST server without
+# DNS (nsswitch is "hosts: files dns"). Production nodes resolve est.oopl.dev.mil
+# via real DNS (AAAA) instead of this static entry.
+127.0.0.1	localhost
+127.0.1.1	buildroot
+::1		localhost ip6-localhost ip6-loopback
+2601:443:c200:575::61	est.oopl.dev.mil

@@ -1,0 +1,45 @@
+[workspace]
+members = ["crates/initd", "crates/noded"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://example.invalid/nodeos"
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+axum = "0.8.9"
+# der is used only to PEM-encode the issued/CA certificates returned by
+# usg-est-client. Must match the der version that crate exposes (0.8).
+der = { version = "0.8", features = ["pem"] }
+hyper-util = { version = "0.1.20", features = [
+  "server-auto",
+  "service",
+  "tokio",
+] }
+libc = "0.2.186"
+rustls = "0.23.40"
+rustls-pemfile = "2.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+yaml_serde = "0.10.4"
+tokio = { version = "1.52.3", features = [
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "time",
+] }
+tokio-rustls = "0.26.4"
+toml = "1.1.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+# Used to read the node certificate's validity window for renewal decisions.
+# Must match the x509-cert version usg-est-client exposes (0.3.0-rc.4).
+x509-cert = "0.3.0-rc.4"
+# Shared, ATO-targeted RFC 7030 EST client (github.com/192d-Wing/usg-est-client).
+# Pinned to the v2.1.0 tag: adds the PKCS#11 token-backed TLS client identity
+# (TPM-resident key) plus the PKCS#11 provider fixes (ECDSA P1363->DER, session
+# deadlock, CKA_EC_PARAMS), cacerts raw-DER, and the quinn-proto advisory bump.
+usg-est-client = { git = "https://github.com/192d-Wing/usg-est-client", tag = "v2.1.0" }
