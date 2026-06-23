@@ -19,6 +19,10 @@ tpmstate/
 rootfs.cpio
 bzImage
 
+# Deployment-specific lab values + bootstrap token (EST server host/IP, node
+# FQDN, token). Pulled into the image config at build time; never committed.
+.env
+
 # Node identity / secrets that must never be committed (the enrolled PKI lives on
 # the node's encrypted volume at runtime, not in the repo)
 *.pem.key

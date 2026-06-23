@@ -4,6 +4,17 @@ set -euo pipefail
 export PATH="$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Load deployment-specific lab values (EST server host/IP, node FQDN, bootstrap
+# token) from a gitignored .env. post-build.sh substitutes these into the image
+# config, replacing the documentation placeholders in the committed overlay.
+if [ -f "$repo_root/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$repo_root/.env"
+  set +a
+fi
+
 build_base="${NODEOS_BUILD_BASE:-$HOME/.cache/nodeos-buildroot}"
 buildroot_dir="${BUILDROOT_DIR:-$build_base/source}"
 output_dir="${BUILDROOT_OUTPUT_DIR:-$build_base/output}"
