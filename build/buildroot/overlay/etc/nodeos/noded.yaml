@@ -1,5 +1,5 @@
 listenAddr: "[::1]:9443"
-nodeId: qemu-node-001.oopl.dev.mil
+nodeId: qemu-node-001.example.com
 # Enrolled identity lives on writable state (the root filesystem is read-only).
 # Only the baked-in EST trust anchor (caCertFile) stays under read-only /etc.
 certFile: /var/lib/nodeos/pki/server.crt
@@ -21,11 +21,12 @@ tpm:
 enrollment:
   est:
     # Base EST server URL. The client appends /.well-known/est/<operation>.
-    # IPv6-only node: resolved via the AAAA record (est.oopl.dev.mil ->
-    # 2601:443:c200:575::61). Requires DNS + IPv6 egress on the node network.
-    serverUrl: https://est.oopl.dev.mil
-    # Bootstrap-only token for qemu-node-001.oopl.dev.mil.
-    # Short-lived secret — do not commit; rotate after enrollment.
+    # IPv6-only node: resolved via the AAAA record (est.example.com ->
+    # 2001:db8::61). Requires DNS + IPv6 egress on the node network. Replace with
+    # your EST server.
+    serverUrl: https://est.example.com
+    # Bootstrap-only token for the node. Short-lived secret — do not commit;
+    # inject per-deployment and rotate after enrollment.
     bearerToken: replace-with-bootstrap-token
     caCertFile: /etc/nodeos/pki/est-ca.crt
     # Optional RFC 7030 CA label. When set the client uses
