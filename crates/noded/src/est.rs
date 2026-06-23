@@ -14,7 +14,7 @@
 //! never used once the node holds a certificate. Renewal uses the node identity.
 
 use std::{
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::Write as _,
     path::Path,
     sync::Arc,
@@ -45,8 +45,12 @@ enum Auth<'a> {
     ClientResolver(Arc<dyn ResolvesClientCert>),
 }
 
-/// Atomically write `data` to `path` (temp file in the same directory, fsync,
-/// then rename). Key material is created with mode `0600` on Unix.
+/// Atomically and durably write `data` to `path`: write a temp file in the same
+/// directory, fsync it, rename over `path`, then fsync the parent directory so
+/// the rename itself survives a crash/power loss. Without the directory fsync the
+/// file contents are durable but the new directory entry can be lost, leaving the
+/// node with no certificate after an abrupt power-off. Key material is created
+/// with mode `0600` on Unix.
 fn write_atomic(path: &Path, data: &[u8], private: bool) -> Result<()> {
     let parent = path
         .parent()
@@ -79,6 +83,13 @@ fn write_atomic(path: &Path, data: &[u8], private: bool) -> Result<()> {
 
     std::fs::rename(&tmp, path)
         .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+
+    // Durably commit the rename by fsync'ing the parent directory. On Unix this
+    // requires opening the directory read-only and syncing it; on other platforms
+    // (where opening a directory as a file fails) it is a best-effort no-op.
+    if let Ok(dir) = File::open(parent) {
+        let _ = dir.sync_all();
+    }
     Ok(())
 }
 

@@ -248,8 +248,29 @@ async fn run(config: Config) -> Result<()> {
         match est::cert_needs_renewal(&config.cert_file) {
             Ok(true) => {
                 info!("node certificate near expiry; attempting EST re-enrollment");
-                if let Err(err) = est::reenroll(&config, tpm.as_deref()).await {
-                    warn!(error = %err, "EST re-enrollment failed; continuing with existing certificate");
+                // Best-effort, but retry briefly to ride out the post-boot IPv6
+                // SLAAC settling window (same race as bootstrap). On failure the
+                // node keeps its still-valid certificate; the renewal loop retries.
+                const REENROLL_ATTEMPTS: u32 = 6;
+                let mut attempt = 0;
+                loop {
+                    attempt += 1;
+                    match est::reenroll(&config, tpm.as_deref()).await {
+                        Ok(()) => break,
+                        Err(err) if attempt < REENROLL_ATTEMPTS => {
+                            warn!(
+                                attempt,
+                                max = REENROLL_ATTEMPTS,
+                                error = format!("{err:#}"),
+                                "EST re-enrollment failed; retrying in 5s (network may be settling)"
+                            );
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                        }
+                        Err(err) => {
+                            warn!(error = %format!("{err:#}"), "EST re-enrollment failed; continuing with existing certificate");
+                            break;
+                        }
+                    }
                 }
             }
             Ok(false) => info!("node PKI present and current; skipping enrollment"),
