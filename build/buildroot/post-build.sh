@@ -16,22 +16,28 @@ if [ -x "${NODEOS_NODED:-}" ]; then
 fi
 
 # Substitute deployment-specific lab values from .env (sourced by
-# build-buildroot-image.sh) into the image config, replacing the documentation
-# placeholders shipped in the committed overlay. Unset values keep the
-# placeholder. The token/host/IP never live in the committed tree, only in .env.
+# build-buildroot-image.sh) into the image config. Substitution is by config KEY
+# (replacing whatever value is present), not by matching the committed
+# placeholder, so it is idempotent across incremental builds — buildroot may not
+# reset the target overlay file, so a prior build's real value would otherwise
+# stick. Unset .env values leave the current line untouched. The token/host/IP
+# live only in .env, never in the committed tree.
 noded_cfg="$target_dir/etc/nodeos/noded.yaml"
 hosts_file="$target_dir/etc/hosts"
-subst() { # placeholder value file...
-  placeholder="$1"; value="$2"; shift 2
-  [ -n "$value" ] || return 0
-  for f in "$@"; do
-    [ -f "$f" ] && sed -i "s|$placeholder|$value|g" "$f"
-  done
-}
-subst "est.example.com"             "${NODEOS_EST_SERVER:-}"      "$noded_cfg" "$hosts_file"
-subst "2001:db8::61"                "${NODEOS_EST_SERVER_IP:-}"   "$hosts_file" "$noded_cfg"
-subst "qemu-node-001.example.com"   "${NODEOS_NODE_ID:-}"         "$noded_cfg"
-subst "replace-with-bootstrap-token" "${NODEOS_BOOTSTRAP_TOKEN:-}" "$noded_cfg"
+if [ -f "$noded_cfg" ]; then
+  [ -n "${NODEOS_NODE_ID:-}" ] && \
+    sed -i -E "s|^([[:space:]]*nodeId:).*|\1 ${NODEOS_NODE_ID}|" "$noded_cfg"
+  [ -n "${NODEOS_EST_SERVER:-}" ] && \
+    sed -i -E "s|^([[:space:]]*serverUrl:).*|\1 https://${NODEOS_EST_SERVER}|" "$noded_cfg"
+  [ -n "${NODEOS_BOOTSTRAP_TOKEN:-}" ] && \
+    sed -i -E "s|^([[:space:]]*bearerToken:).*|\1 ${NODEOS_BOOTSTRAP_TOKEN}|" "$noded_cfg"
+fi
+# /etc/hosts: replace the EST server mapping (the single est.* entry) by removing
+# any existing one and appending the .env value. Idempotent across rebuilds.
+if [ -f "$hosts_file" ] && [ -n "${NODEOS_EST_SERVER:-}" ] && [ -n "${NODEOS_EST_SERVER_IP:-}" ]; then
+  sed -i -E "/[[:space:]]est\.[^[:space:]]+[[:space:]]*$/d" "$hosts_file"
+  printf '%s\t%s\n' "${NODEOS_EST_SERVER_IP}" "${NODEOS_EST_SERVER}" >> "$hosts_file"
+fi
 
 for forbidden in \
   /bin/sh \

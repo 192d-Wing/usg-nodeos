@@ -72,6 +72,11 @@ export NODEOS_CROSS_GCC="$cross_gcc"
 export NODEOS_INITD="$repo_root/target/release/initd"
 export NODEOS_NODED="$repo_root/target/release/noded"
 
+# Force target-finalize so the overlay copy + post-build (which inject the .env
+# values into the image config) always re-run. Buildroot otherwise skips finalize
+# on a config-only rebuild (no package changed), leaving a stale token/host baked
+# into the image. target-finalize is phony, so this re-applies every build.
+make -C "$output_dir" target-finalize
 make -C "$output_dir"
 
 echo "Buildroot output:"
