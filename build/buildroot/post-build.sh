@@ -3,6 +3,11 @@ set -eu
 
 target_dir="${TARGET_DIR:?TARGET_DIR is required}"
 
+# Workload profile this image was built for (k8s | kvm). Exported by
+# build-buildroot-image.sh; defaults to k8s for a standalone buildroot invocation.
+profile="${NODEOS_PROFILE:-k8s}"
+echo "post-build: NodeOS profile = $profile"
+
 mkdir -p "$target_dir/etc/nodeos/pki"
 mkdir -p "$target_dir/usr/bin"
 
@@ -24,14 +29,22 @@ fi
 # live only in .env, never in the committed tree.
 noded_cfg="$target_dir/etc/nodeos/noded.yaml"
 hosts_file="$target_dir/etc/hosts"
-if [ -f "$noded_cfg" ]; then
-  [ -n "${NODEOS_NODE_ID:-}" ] && \
-    sed -i -E "s|^([[:space:]]*nodeId:).*|\1 ${NODEOS_NODE_ID}|" "$noded_cfg"
-  [ -n "${NODEOS_EST_SERVER:-}" ] && \
-    sed -i -E "s|^([[:space:]]*serverUrl:).*|\1 https://${NODEOS_EST_SERVER}|" "$noded_cfg"
-  [ -n "${NODEOS_BOOTSTRAP_TOKEN:-}" ] && \
-    sed -i -E "s|^([[:space:]]*bearerToken:).*|\1 ${NODEOS_BOOTSTRAP_TOKEN}|" "$noded_cfg"
+# Fail closed if the base overlay did not deliver the node config: noded cannot
+# start without it, so an absent file is a broken image, not a deferred boot error.
+if [ ! -f "$noded_cfg" ]; then
+  echo "missing required node config: $noded_cfg (overlay not applied?)" >&2
+  exit 1
 fi
+# The profile is the single source of truth: overwrite noded.yaml's value with the
+# build profile so the runtime workload always matches the image (no separate
+# per-overlay copy to drift, and no consistency check to maintain).
+sed -i -E "s|^([[:space:]]*profile:).*|\1 ${profile}|" "$noded_cfg"
+[ -n "${NODEOS_NODE_ID:-}" ] && \
+  sed -i -E "s|^([[:space:]]*nodeId:).*|\1 ${NODEOS_NODE_ID}|" "$noded_cfg"
+[ -n "${NODEOS_EST_SERVER:-}" ] && \
+  sed -i -E "s|^([[:space:]]*serverUrl:).*|\1 https://${NODEOS_EST_SERVER}|" "$noded_cfg"
+[ -n "${NODEOS_BOOTSTRAP_TOKEN:-}" ] && \
+  sed -i -E "s|^([[:space:]]*bearerToken:).*|\1 ${NODEOS_BOOTSTRAP_TOKEN}|" "$noded_cfg"
 # /etc/hosts: replace the EST server mapping (the single est.* entry) by removing
 # any existing one and appending the .env value. Idempotent across rebuilds.
 if [ -f "$hosts_file" ] && [ -n "${NODEOS_EST_SERVER:-}" ] && [ -n "${NODEOS_EST_SERVER_IP:-}" ]; then

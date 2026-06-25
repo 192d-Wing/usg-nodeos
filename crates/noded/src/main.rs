@@ -40,8 +40,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod est;
 mod pkcs11;
+mod workload;
 
 use pkcs11::{TpmIdentity, TpmPkcs11Config};
+use workload::{new_profile, WorkloadHealth, WorkloadProfile};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +51,12 @@ struct Config {
     #[serde(default = "default_listen_addr")]
     listen_addr: SocketAddr,
     node_id: String,
+    /// Which workload this node reconciles. Selected at build time (the image's
+    /// package set + overlay) and reflected here so `noded` drives the matching
+    /// `WorkloadProfile`. The hardened base (boot, identity, mTLS API) is
+    /// identical across profiles; only the workload differs.
+    #[serde(default)]
+    profile: Profile,
     cert_file: PathBuf,
     key_file: PathBuf,
     client_ca: PathBuf,
@@ -59,6 +67,19 @@ struct Config {
     /// pair is generated in and never leaves the TPM, and `keyFile` is unused.
     #[serde(default)]
     tpm: Option<TpmPkcs11Config>,
+}
+
+/// The workload layer this node runs. The base OS is workload-agnostic; the
+/// profile selects what `noded` reconciles (and, at build time, which packages
+/// and overlay ship in the image).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Profile {
+    /// Kubernetes node: containerd + kubelet, joined to a cluster.
+    #[default]
+    K8s,
+    /// Bare-metal KVM/libvirt hypervisor host.
+    Kvm,
 }
 
 /// Management-API roles, ordered by privilege. Higher roles inherit the
@@ -147,6 +168,7 @@ struct EstConfig {
 #[derive(Clone)]
 struct AppState {
     config: Config,
+    workload: Arc<dyn WorkloadProfile>,
 }
 
 #[derive(Serialize)]
@@ -167,6 +189,10 @@ struct StatusResponse {
     ssh_present: bool,
     shell_present: bool,
     package_manager_present: bool,
+    /// Active workload profile name ("k8s" | "kvm").
+    workload_profile: String,
+    /// Health of the profile's workload (containerd/kubelet or libvirtd).
+    workload_health: WorkloadHealth,
 }
 
 fn main() -> Result<()> {
@@ -200,6 +226,13 @@ fn main() -> Result<()> {
 }
 
 async fn run(config: Config) -> Result<()> {
+    // Resolve the workload profile up front and announce it: the profile is a
+    // static property of the image, known before any network or TPM work, so it
+    // should appear in the boot log even if enrollment is still settling.
+    // Reconciliation happens later (after identity is established).
+    let workload = new_profile(config.profile);
+    info!(profile = workload.name(), "workload profile active");
+
     // Open (provisioning on first boot) the TPM-resident node identity if
     // configured. This generates the EST key inside the token, so it must happen
     // before enrollment signs the CSR.
@@ -292,8 +325,16 @@ async fn run(config: Config) -> Result<()> {
 
     tokio::spawn(renewal_loop(config.clone(), resolver, tpm.clone()));
 
+    // Bring the workload to its desired state. Best-effort in Phase 1 (the k8s
+    // and kvm reconcilers are no-ops); a failure here must not stop the node from
+    // serving its management API, through which an operator can intervene.
+    if let Err(err) = workload.reconcile().await {
+        warn!(profile = workload.name(), error = %format!("{err:#}"), "workload reconcile failed; continuing");
+    }
+
     let app = build_router(AppState {
         config: config.clone(),
+        workload,
     });
 
     let listener = TcpListener::bind(config.listen_addr)
@@ -353,6 +394,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 }
 
 async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
+    let workload_health = state.workload.health().await;
     Json(StatusResponse {
         node_id: state.config.node_id,
         os_version: "dev",
@@ -364,6 +406,8 @@ async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
             || path_exists("/usr/bin/dnf")
             || path_exists("/usr/bin/yum")
             || path_exists("/usr/bin/apk"),
+        workload_profile: state.workload.name().to_string(),
+        workload_health,
     })
 }
 
@@ -729,7 +773,7 @@ fn install_crypto_provider() -> Result<()> {
     Ok(())
 }
 
-fn path_exists(path: &str) -> bool {
+pub(crate) fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
 }
 
@@ -776,6 +820,20 @@ enrollment:
         let yaml = format!("{SAMPLE_YAML}    label: issuing-ca\n");
         let config = parse_config(&yaml, true).expect("parse");
         assert_eq!(config.enrollment.est.label.as_deref(), Some("issuing-ca"));
+    }
+
+    #[test]
+    fn profile_defaults_to_k8s_and_parses_explicit_kvm() {
+        // Omitted `profile` defaults to k8s (the namesake), so existing images
+        // keep their behavior without touching their config.
+        let config = parse_config(SAMPLE_YAML, true).expect("parse");
+        assert_eq!(config.profile, Profile::K8s);
+        assert_eq!(new_profile(config.profile).name(), "k8s");
+
+        let kvm_yaml = format!("profile: kvm\n{SAMPLE_YAML}");
+        let kvm = parse_config(&kvm_yaml, true).expect("parse");
+        assert_eq!(kvm.profile, Profile::Kvm);
+        assert_eq!(new_profile(kvm.profile).name(), "kvm");
     }
 
     #[test]
@@ -875,7 +933,8 @@ enrollment:
                 RoleBinding { role: Role::Operator, subjects: vec!["operator-id".into()] },
             ],
         };
-        let state = AppState { config };
+        let workload = new_profile(config.profile);
+        let state = AppState { config, workload };
 
         async fn status_for(
             state: &AppState,

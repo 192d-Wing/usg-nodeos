@@ -1,18 +1,28 @@
 # Architecture
 
-The OS is a minimal, immutable Kubernetes node platform with a local management
-daemon as the only supported administrative interface.
+The OS is a minimal, immutable node platform with a local management daemon as
+the only supported administrative interface. One hardened base supports multiple
+**workload profiles**, selected at build time (`NODEOS_PROFILE`) and reconciled
+at runtime by `noded`:
+
+- **k8s** — Kubernetes node (containerd + kubelet).
+- **kvm** — bare-metal KVM/libvirt hypervisor host.
 
 ## System Model
 
-The node is split into four layers:
+The node is split into five layers:
 
 1. **Boot layer**: signed bootloader, signed kernel, signed initramfs.
-2. **Base OS layer**: immutable root filesystem with kernel, core userspace,
-   `containerd`, `kubelet`, CNI assets, and `noded`.
-3. **State layer**: writable partitions for machine identity, Kubernetes state,
-   container images, logs, and crash/debug bundles.
-4. **Management layer**: local HTTPS API with mandatory mTLS.
+2. **Base OS layer**: immutable root filesystem with kernel, core userspace, the
+   TPM/LUKS stack, and `noded`. Identical across profiles — it carries no
+   workload assumptions.
+3. **Workload layer**: the profile-specific payload — `containerd`/`kubelet` +
+   CNI for k8s, `libvirtd` + QEMU for kvm — supervised by `initd` and reconciled
+   by `noded`'s `WorkloadProfile`.
+4. **State layer**: writable partitions for machine identity, workload state,
+   logs, and crash/debug bundles.
+5. **Management layer**: local HTTPS API with mandatory mTLS (shared by all
+   profiles).
 
 ## Filesystem Layout
 
@@ -38,8 +48,9 @@ interactive shell.
 - Bind only to IPv6 addresses
 - Require client certificates
 - Validate and apply declarative node configuration
-- Manage kubelet and containerd lifecycle
-- Report health, versions, boot state, and compliance posture
+- Reconcile the active workload profile (k8s: kubelet + containerd; kvm:
+  libvirtd + guest domains) via its `WorkloadProfile` implementation
+- Report health, versions, boot state, workload profile, and compliance posture
 - Stage OS updates atomically
 - Reboot only after explicit API requests and policy checks
 
