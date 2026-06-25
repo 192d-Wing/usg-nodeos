@@ -45,17 +45,39 @@ if [ -n "${NODEOS_CROSS_GCC:-}" ]; then
     # `.data.rel.ro.local`, which delocate flags as a forbidden .data section).
     # Compile the C/asm with clang, cross-targeted at the buildroot sysroot so we
     # stay on the validated compiler AND keep the hermetic target glibc.
-    if ! command -v clang >/dev/null 2>&1; then
+    #
+    # ATO / CMVP: the aws-lc-rs FIPS module is validated against a SPECIFIC clang
+    # version in its operating environment. Pin it for a reproducible, on-cert
+    # build — do NOT build an ATO image with "whatever clang the distro ships":
+    #   - NODEOS_FIPS_CC / NODEOS_FIPS_CXX : the exact clang binary (e.g.
+    #     clang-19 / clang++-19) matching the CMVP-validated OE for the linked
+    #     aws-lc-fips-sys version. Defaults to clang/clang++ for dev builds.
+    #   - NODEOS_FIPS_CLANG_VERSION : when set, the build asserts the compiler's
+    #     reported version matches and fails closed otherwise (reproducibility).
+    # Confirm the validated clang against the aws-lc CMVP certificate and
+    # usg-est-client docs/fips-compliance.md before an ATO.
+    fips_cc="${NODEOS_FIPS_CC:-clang}"
+    fips_cxx="${NODEOS_FIPS_CXX:-clang++}"
+    if ! command -v "$fips_cc" >/dev/null 2>&1; then
       echo "error: FIPS build requires clang (aws-lc-fips delocate is clang-based);" >&2
-      echo "       install clang or build with NODEOS_FIPS=0." >&2
+      echo "       install '$fips_cc' (or set NODEOS_FIPS_CC) or build with NODEOS_FIPS=0." >&2
+      exit 1
+    fi
+    fips_cc_version="$("$fips_cc" --version | head -1)"
+    echo "FIPS aws-lc compiler: $fips_cc_version"
+    if [ -n "${NODEOS_FIPS_CLANG_VERSION:-}" ] \
+       && ! printf '%s' "$fips_cc_version" | grep -qF "clang version ${NODEOS_FIPS_CLANG_VERSION}"; then
+      echo "error: NODEOS_FIPS_CLANG_VERSION pinned to ${NODEOS_FIPS_CLANG_VERSION}," >&2
+      echo "       but '$fips_cc' reports: $fips_cc_version" >&2
+      echo "       Install the CMVP-validated clang or unset the pin to override." >&2
       exit 1
     fi
     clang_cross="--target=$triple --sysroot=$sysroot --gcc-toolchain=$host_dir"
-    export CC_x86_64_unknown_linux_gnu="clang"
-    export CXX_x86_64_unknown_linux_gnu="clang++"
+    export CC_x86_64_unknown_linux_gnu="$fips_cc"
+    export CXX_x86_64_unknown_linux_gnu="$fips_cxx"
     export CFLAGS_x86_64_unknown_linux_gnu="$clang_cross"
     export CXXFLAGS_x86_64_unknown_linux_gnu="$clang_cross"
-    echo "cross-building Rust with clang for the FIPS aws-lc module" \
+    echo "cross-building Rust with $fips_cc for the FIPS aws-lc module" \
          "(sysroot=$sysroot), linking with $cross_gcc"
   else
     export CC_x86_64_unknown_linux_gnu="$cross_gcc"
