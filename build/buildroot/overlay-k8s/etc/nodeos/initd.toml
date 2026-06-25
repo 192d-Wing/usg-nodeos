@@ -38,6 +38,16 @@ target = "/sys/fs/cgroup"
 fstype = "cgroup2"
 flags = ["nodev", "nosuid", "noexec"]
 
+# CNI config dir: writable tmpfs over the read-only root so the cluster's CNI
+# (Cilium DaemonSet) can drop its conflist here at runtime. The plugin binaries
+# ship read-only in /opt/cni/bin; only the config dir needs to be writable.
+[[mounts]]
+source = "cni-conf"
+target = "/etc/cni/net.d"
+fstype = "tmpfs"
+flags = ["nodev", "nosuid"]
+data = "mode=0755,size=1m"
+
 [[mounts]]
 source = "run"
 target = "/run"
@@ -95,12 +105,14 @@ formatIfEmpty = true
 mkfs = ["/sbin/mkfs.ext4", "-q", "-F"]
 encrypt = { name = "nodeos-data", tpmNvIndex = "0x01500002", pcrs = "sha256:4,7" }
 
-# containerd first: its CRI socket gates dependent services (kubelet, added in
-# Phase 2b). readyWhen makes initd wait for the socket before starting the next
-# service. /run/containerd lives on the /run tmpfs.
+# containerd first: its CRI socket gates dependent services (kubelet). readyWhen
+# makes initd wait for the socket before starting the next service.
+# /run/containerd lives on the /run tmpfs; config.toml configures CRI (cgroupfs,
+# pause image, CNI dirs) and redirects the managed-opt dir to writable storage.
 [[services]]
 name = "containerd"
 command = "/usr/bin/containerd"
+args = ["--config", "/etc/containerd/config.toml"]
 restart = "always"
 readyWhen = "/run/containerd/containerd.sock"
 readyTimeoutSecs = 30
@@ -110,3 +122,23 @@ name = "noded"
 command = "/usr/bin/noded"
 args = ["/etc/nodeos/noded.yaml"]
 restart = "always"
+
+# kubelet last, and deferred: startWhen holds it until noded has rendered the
+# bootstrap-kubeconfig from a PUT /v1/config (an unconfigured node simply does not
+# run kubelet). kubelet then TLS-bootstraps its own client cert and registers.
+# --node-ip is omitted; kubelet auto-detects the SLAAC IPv6 (validated live).
+# --hostname-override is the node FQDN, substituted from .env by post-build.sh.
+[[services]]
+name = "kubelet"
+command = "/usr/bin/kubelet"
+args = [
+  "--config", "/var/lib/nodeos/k8s/kubelet/config.yaml",
+  "--bootstrap-kubeconfig", "/var/lib/nodeos/k8s/kubelet/bootstrap-kubeconfig",
+  "--kubeconfig", "/var/lib/kubelet/kubeconfig",
+  "--cert-dir", "/var/lib/kubelet/pki",
+  "--container-runtime-endpoint", "unix:///run/containerd/containerd.sock",
+  "--register-node",
+  "--hostname-override", "qemu-node-001.example.com",
+]
+restart = "always"
+startWhen = "/var/lib/nodeos/k8s/kubelet/bootstrap-kubeconfig"

@@ -1,0 +1,28 @@
+# NodeOS containerd CRI config (containerd 2.x, config schema v3).
+# - cgroupfs (NodeOS has no systemd, so SystemdCgroup must be false; kubelet's
+#   KubeletConfiguration matches with cgroupDriver: cgroupfs).
+# - CNI: plugin binaries ship read-only in /opt/cni/bin; the cluster's CNI
+#   (Cilium DaemonSet) writes its conflist into the writable /etc/cni/net.d.
+# - managed-opt: redirect the io.containerd.internal.v1.opt path off the
+#   read-only root onto the persistent encrypted data volume, so containerd can
+#   create it (silences the "/opt/containerd: read-only file system" warning).
+version = 3
+
+[plugins.'io.containerd.cri.v1.images']
+  [plugins.'io.containerd.cri.v1.images'.pinned_images]
+    sandbox = 'registry.k8s.io/pause:3.10'
+
+[plugins.'io.containerd.cri.v1.runtime']
+  [plugins.'io.containerd.cri.v1.runtime'.containerd]
+    default_runtime_name = 'runc'
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+      runtime_type = 'io.containerd.runc.v2'
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+        SystemdCgroup = false
+        BinaryName = 'runc'
+  [plugins.'io.containerd.cri.v1.runtime'.cni]
+    bin_dir = '/opt/cni/bin'
+    conf_dir = '/etc/cni/net.d'
+
+[plugins.'io.containerd.internal.v1.opt']
+  path = '/var/lib/containerd/opt'

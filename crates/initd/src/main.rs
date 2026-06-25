@@ -98,6 +98,14 @@ struct Service {
     ready_when: Option<PathBuf>,
     #[serde(default = "default_ready_timeout_secs")]
     ready_timeout_secs: u64,
+    /// Optional start gate: the service is NOT started until this path exists,
+    /// and the supervisor keeps checking until it does. Used for a service whose
+    /// config is produced at runtime by another component — e.g. kubelet waits
+    /// for `noded` to render its bootstrap-kubeconfig before there is anything to
+    /// start against. Independent of `ready_when` (which orders an already-started
+    /// service before the next one).
+    #[serde(default)]
+    start_when: Option<PathBuf>,
 }
 
 fn default_ready_timeout_secs() -> u64 {
@@ -115,7 +123,9 @@ enum RestartPolicy {
 #[derive(Debug)]
 struct RunningService {
     spec: Service,
-    child: Child,
+    /// `None` while the service is waiting for its `start_when` marker to appear;
+    /// `Some` once it has been started.
+    child: Option<Child>,
 }
 
 fn main() -> Result<()> {
@@ -528,10 +538,28 @@ fn start_services(services: &[Service]) -> Result<Vec<RunningService>> {
     let mut running = Vec::with_capacity(services.len());
 
     for service in services {
+        // A service gated by `start_when` is deferred until its marker exists; the
+        // supervise loop starts it once it appears (so an unconfigured workload
+        // simply does not run yet, instead of crash-looping).
+        if let Some(marker) = &service.start_when {
+            if !marker.exists() {
+                info!(
+                    service = %service.name,
+                    marker = %marker.display(),
+                    "service deferred until start marker appears"
+                );
+                running.push(RunningService {
+                    spec: service.clone(),
+                    child: None,
+                });
+                continue;
+            }
+        }
+
         let child = spawn_service(service)?;
         running.push(RunningService {
             spec: service.clone(),
-            child,
+            child: Some(child),
         });
         // Order dependents: wait for this service's readiness marker (e.g. the
         // containerd socket) before starting the next one. Best-effort — on
@@ -572,17 +600,42 @@ fn await_ready(service: &str, marker: &Path, timeout_secs: u64) {
 fn supervise(services: &mut Vec<RunningService>) -> Result<()> {
     loop {
         for running in services.iter_mut() {
-            if let Some(status) = running.child.try_wait()? {
-                warn!(
-                    service = %running.spec.name,
-                    status = %status,
-                    "service exited"
-                );
-
-                if running.spec.restart == RestartPolicy::Always {
-                    running.child = spawn_service(&running.spec)?;
-                } else {
-                    bail!("required service {} exited", running.spec.name);
+            match &mut running.child {
+                // Deferred service: start it once its start marker appears.
+                None => {
+                    let ready = running
+                        .spec
+                        .start_when
+                        .as_ref()
+                        .map(|m| m.exists())
+                        .unwrap_or(true);
+                    if ready {
+                        match spawn_service(&running.spec) {
+                            Ok(child) => running.child = Some(child),
+                            // Best-effort: log and retry next tick rather than
+                            // aborting PID 1 over a transient spawn failure.
+                            Err(err) => warn!(
+                                service = %running.spec.name,
+                                error = %err,
+                                "failed to start deferred service; will retry"
+                            ),
+                        }
+                    }
+                }
+                // Running service: restart on exit per policy.
+                Some(child) => {
+                    if let Some(status) = child.try_wait()? {
+                        warn!(
+                            service = %running.spec.name,
+                            status = %status,
+                            "service exited"
+                        );
+                        if running.spec.restart == RestartPolicy::Always {
+                            running.child = Some(spawn_service(&running.spec)?);
+                        } else {
+                            bail!("required service {} exited", running.spec.name);
+                        }
+                    }
                 }
             }
         }
@@ -807,5 +860,6 @@ fn default_services() -> Vec<Service> {
         restart: RestartPolicy::Always,
         ready_when: None,
         ready_timeout_secs: default_ready_timeout_secs(),
+        start_when: None,
     }]
 }

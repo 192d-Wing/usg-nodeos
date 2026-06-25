@@ -12,14 +12,82 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::Profile;
 
 mod k8s;
 mod kvm;
+
+/// Declarative node-join intent delivered via `PUT /v1/config` (and persisted so
+/// it is re-applied at boot). Currently shaped for the k8s profile (cluster join);
+/// the kvm profile ignores it until Phase 3 generalizes this into a per-profile
+/// intent. Validated by [`NodeIntent::validate`].
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeIntent {
+    /// Kubernetes API server URL — IPv6 literal, https (e.g.
+    /// `https://[2001:db8::1]:6443`).
+    pub api_server: String,
+    /// Cluster CA bundle (PEM) that signs the API server certificate.
+    pub cluster_ca: String,
+    /// Bootstrap token (`[a-z0-9]{6}.[a-z0-9]{16}`) for kubelet TLS bootstrap.
+    pub bootstrap_token: String,
+    /// In-cluster DNS service addresses (IPv6 for an IPv6-only cluster).
+    #[serde(default)]
+    pub cluster_dns: Vec<String>,
+    /// Cluster DNS domain.
+    #[serde(default = "default_cluster_domain")]
+    pub cluster_domain: String,
+    /// Optional node labels (`key=value`). Not yet wired to kubelet flags — see
+    /// the node-ip/labels note in the Stage 2b plan.
+    #[serde(default)]
+    pub node_labels: Vec<String>,
+    /// Optional node taints (`key=value:Effect`).
+    #[serde(default)]
+    pub node_taints: Vec<String>,
+}
+
+fn default_cluster_domain() -> String {
+    "cluster.local".to_string()
+}
+
+impl NodeIntent {
+    /// Semantic validation beyond serde's structural parse. Mirrors the EST
+    /// config checks: IPv6-only + https for the API server, a well-formed
+    /// bootstrap token, and a parseable CA bundle.
+    pub fn validate(&self) -> Result<()> {
+        // IPv6-only node: the API server must be an https URL with a bracketed
+        // IPv6 literal authority (https://[..]:port).
+        if !self.api_server.starts_with("https://[") {
+            return Err(anyhow!(
+                "apiServer must be an https URL with an IPv6 literal host, e.g. https://[2001:db8::1]:6443"
+            ));
+        }
+        if !valid_bootstrap_token(&self.bootstrap_token) {
+            return Err(anyhow!(
+                "bootstrapToken must match [a-z0-9]{{6}}.[a-z0-9]{{16}}"
+            ));
+        }
+        if !self.cluster_ca.contains("-----BEGIN CERTIFICATE-----") {
+            return Err(anyhow!("clusterCa must be a PEM-encoded certificate bundle"));
+        }
+        Ok(())
+    }
+}
+
+/// A kubeadm-style bootstrap token: `<6 lowercase-alnum>.<16 lowercase-alnum>`.
+fn valid_bootstrap_token(token: &str) -> bool {
+    let alnum = |s: &str, n: usize| {
+        s.len() == n && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    };
+    match token.split_once('.') {
+        Some((id, secret)) => alnum(id, 6) && alnum(secret, 16),
+        None => false,
+    }
+}
 
 /// The workload-specific behavior `noded` drives for the active [`Profile`].
 #[async_trait]
@@ -27,10 +95,11 @@ pub trait WorkloadProfile: Send + Sync {
     /// Stable, lowercase profile name for status reporting and audit logs.
     fn name(&self) -> &'static str;
 
-    /// Bring the workload to its desired state. Must be idempotent — it runs at
-    /// startup and again whenever declarative config is applied. A no-op until
-    /// the per-profile workload layer is implemented.
-    async fn reconcile(&self) -> Result<()>;
+    /// Bring the workload to its desired state for the given declarative intent
+    /// (`None` when the node has not been given join config yet). Must be
+    /// idempotent — it runs at startup with the persisted intent and again on
+    /// every `PUT /v1/config`.
+    async fn reconcile(&self, desired: Option<&NodeIntent>) -> Result<()>;
 
     /// Current workload health, surfaced on `GET /v1/status`.
     async fn health(&self) -> WorkloadHealth;

@@ -23,9 +23,10 @@ impl WorkloadProfile for KvmProfile {
         "kvm"
     }
 
-    async fn reconcile(&self) -> Result<()> {
+    async fn reconcile(&self, _desired: Option<&super::NodeIntent>) -> Result<()> {
         // Phase 3: ensure libvirtd is supervised and reconcile declarative VM
-        // domains to their desired run state. No-op for now.
+        // domains to their desired run state. The k8s-shaped NodeIntent is ignored
+        // until Phase 3 generalizes the declarative intent per profile. No-op now.
         Ok(())
     }
 
