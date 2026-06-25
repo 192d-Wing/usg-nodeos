@@ -1,0 +1,7 @@
+# Force LF for files consumed by Linux build tooling, regardless of a Windows
+# checkout's core.autocrlf. CRLF breaks the `#!/bin/sh` shebang on shell scripts
+# (buildroot's post-build script fails with `bad interpreter: /bin/sh^M`) and
+# corrupts buildroot defconfig / kernel-config parsing.
+*.sh        text eol=lf
+build/buildroot/** text eol=lf
+scripts/**  text eol=lf
