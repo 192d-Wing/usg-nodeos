@@ -98,13 +98,21 @@ glibc is newer than buildroot's.
 ## State and PKI on a read-only root
 
 Because `/` is read-only, the **enrolled** node identity
-(`certFile`/`keyFile`/`clientCa`) is written to `/var/lib/nodeos/pki`, which is
-on a writable tmpfs mounted by `initd`. Only the baked-in EST trust anchor
-(`enrollment.est.caCertFile`) lives under read-only `/etc/nodeos/pki`.
+(`certFile`/`keyFile`/`clientCa`) is written to `/var/lib/nodeos/pki`. Only the
+baked-in EST trust anchor (`enrollment.est.caCertFile`) lives under read-only
+`/etc/nodeos/pki`.
 
-Today `/var/lib/nodeos` is tmpfs, so the node re-enrolls on every boot
-(ephemeral identity). Persisting the node identity across reboots needs a durable
-state partition — a planned follow-up.
+`/var/lib/nodeos` is a **persistent LUKS-encrypted partition** (`vda2`), so the
+node bootstraps once and renews thereafter — the identity survives reboots. The
+LUKS key is generated in and sealed to the TPM (NV index `0x01500001`), released
+only when the measured-boot PCRs (4 = kernel, 7 = secure-boot state) match the
+provisioning-time values, so the volume unlocks only after an untampered boot.
+
+The k8s profile adds a second such volume, `vda3` (`nodeos-data`, NV index
+`0x01500002`), mounted at `/var/lib/containerd` so pulled container images
+persist across reboots. The disk layout is therefore: `vda1` ESP (EFI-stub
+kernel), `vda2` state, `vda3` data (k8s only). Changing the kernel changes PCR 4,
+so a kernel update requires re-provisioning the sealed volumes.
 
 ## Early Init Contract
 
