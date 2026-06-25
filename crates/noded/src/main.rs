@@ -226,6 +226,13 @@ fn main() -> Result<()> {
 }
 
 async fn run(config: Config) -> Result<()> {
+    // Resolve the workload profile up front and announce it: the profile is a
+    // static property of the image, known before any network or TPM work, so it
+    // should appear in the boot log even if enrollment is still settling.
+    // Reconciliation happens later (after identity is established).
+    let workload = new_profile(config.profile);
+    info!(profile = workload.name(), "workload profile active");
+
     // Open (provisioning on first boot) the TPM-resident node identity if
     // configured. This generates the EST key inside the token, so it must happen
     // before enrollment signs the CSR.
@@ -321,7 +328,6 @@ async fn run(config: Config) -> Result<()> {
     // Bring the workload to its desired state. Best-effort in Phase 1 (the k8s
     // and kvm reconcilers are no-ops); a failure here must not stop the node from
     // serving its management API, through which an operator can intervene.
-    let workload = new_profile(config.profile);
     if let Err(err) = workload.reconcile().await {
         warn!(profile = workload.name(), error = %format!("{err:#}"), "workload reconcile failed; continuing");
     }
