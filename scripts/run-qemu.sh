@@ -30,6 +30,9 @@ if [ "${NODEOS_NET:-0}" = "1" ]; then
   # IPv6 user-mode NIC; initd brings eth0 up and the kernel does SLAAC from
   # slirp's router advertisements (no kernel ip= autoconfig needed).
   net_args=(-netdev "user,id=n0,ipv6=on" -device "virtio-net-pci,netdev=n0")
+  if [ -n "${NODEOS_PCAP:-}" ]; then
+    net_args+=(-object "filter-dump,id=d0,netdev=n0,file=${NODEOS_PCAP}")
+  fi
 fi
 
 # UEFI boot+state disk (GPT: ESP with the EFI-stub kernel + LUKS state on vda2).
