@@ -93,6 +93,18 @@ fi
 # NOTE (ATO): cross-check this sha256 against kernel.org's published hash.
 nodeos_kernel_version="7.1"
 nodeos_kernel_sha256="691f44797fbe790dc8a321604c927087526ad27b6d649925d60f8eed0a2564a0"
+# Fail loudly if the defconfig kernel version drifts from this pinned (version,
+# hash) pair — otherwise we'd register a stale hash for the wrong tarball and the
+# clean-build break would reappear with a misleading "No hash found".
+defconfig_kernel_version="$(sed -n \
+  's/^BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="\([^"]*\)".*/\1/p' "$defconfig")"
+if [ -n "$defconfig_kernel_version" ] && \
+   [ "$defconfig_kernel_version" != "$nodeos_kernel_version" ]; then
+  echo "error: defconfig pins kernel $defconfig_kernel_version but this script" >&2
+  echo "       pins $nodeos_kernel_version; update nodeos_kernel_version +" >&2
+  echo "       nodeos_kernel_sha256 in $(basename "$0") to match." >&2
+  exit 1
+fi
 linux_hash_file="$buildroot_dir/linux/linux.hash"
 if ! grep -qs "linux-$nodeos_kernel_version.tar.xz" "$linux_hash_file"; then
   echo "registering NodeOS-pinned hash for linux-$nodeos_kernel_version.tar.xz"

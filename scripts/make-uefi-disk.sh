@@ -49,5 +49,15 @@ if [ ! -f "$img" ]; then
   echo "UEFI disk created (ESP + blank LUKS state + data partitions)"
 else
   echo "refreshing kernel on existing UEFI disk: $img"
+  # An existing disk keeps its partition layout (only the ESP kernel is
+  # refreshed). A disk made before the 3-partition layout lacks vda3, so the k8s
+  # profile's initd would fail to open /dev/vda3 and panic PID 1. Warn loudly so
+  # it is recreated. (A kernel change also reseals PCR4, so reuse across the k8s
+  # cutover means recreating anyway.)
+  part_count="$(sgdisk -p "$img" 2>/dev/null | grep -cE '^[[:space:]]+[0-9]+ ' || true)"
+  if [ "${part_count:-0}" -lt 3 ]; then
+    echo "warning: $img has ${part_count:-0} partition(s) (<3); delete it to get the" >&2
+    echo "         current ESP+state+data layout the k8s profile expects." >&2
+  fi
   refresh_esp
 fi

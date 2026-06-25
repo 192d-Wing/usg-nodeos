@@ -544,15 +544,22 @@ fn start_services(services: &[Service]) -> Result<Vec<RunningService>> {
     Ok(running)
 }
 
-/// Poll for a readiness marker path, up to `timeout_secs`. Logs the outcome.
+/// How often `await_ready` polls for the readiness marker.
+const READY_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Poll for a readiness marker path, up to `timeout_secs`. Logs the outcome. The
+/// marker is checked at least once even when `timeout_secs` is 0 (check-once).
 fn await_ready(service: &str, marker: &Path, timeout_secs: u64) {
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
-    while Instant::now() < deadline {
+    loop {
         if marker.exists() {
             info!(service, marker = %marker.display(), "service ready");
             return;
         }
-        thread::sleep(Duration::from_millis(200));
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(READY_POLL_INTERVAL);
     }
     warn!(
         service,

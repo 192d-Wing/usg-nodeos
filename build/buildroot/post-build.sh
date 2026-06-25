@@ -74,9 +74,19 @@ done
 # runtime into a kvm image. Per-profile output dirs prevent this; this guard
 # makes a dirty tree fail loudly instead of shipping a bloated/incorrect image.
 if [ "$profile" != "k8s" ]; then
-  for k8s_bin in /usr/bin/containerd /usr/bin/kubelet /usr/bin/crictl /usr/bin/ctr; do
-    if [ -e "$target_dir$k8s_bin" ]; then
-      echo "profile leak: '$profile' image contains k8s binary $k8s_bin" >&2
+  # Every artifact the k8s fragment installs: the runtime binaries AND runc + the
+  # CNI plugin dir. Missing any of these lets a leaked image slip past the guard.
+  for k8s_path in \
+    /usr/bin/containerd \
+    /usr/bin/containerd-shim-runc-v2 \
+    /usr/bin/ctr \
+    /usr/bin/runc \
+    /usr/bin/kubelet \
+    /usr/bin/crictl \
+    /opt/cni/bin
+  do
+    if [ -e "$target_dir$k8s_path" ]; then
+      echo "profile leak: '$profile' image contains k8s runtime path $k8s_path" >&2
       echo "       (build each profile in its own buildroot output tree)" >&2
       exit 1
     fi
