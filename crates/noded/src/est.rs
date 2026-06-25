@@ -51,7 +51,7 @@ enum Auth<'a> {
 /// file contents are durable but the new directory entry can be lost, leaving the
 /// node with no certificate after an abrupt power-off. Key material is created
 /// with mode `0600` on Unix.
-fn write_atomic(path: &Path, data: &[u8], private: bool) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, data: &[u8], private: bool) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow!("path has no parent directory: {}", path.display()))?;

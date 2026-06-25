@@ -11,6 +11,14 @@ echo "post-build: NodeOS profile = $profile"
 mkdir -p "$target_dir/etc/nodeos/pki"
 mkdir -p "$target_dir/usr/bin"
 
+# /var/run must be writable at runtime: containerd (NRI + CRI sockets), kubelet,
+# and CNI all write under it. Buildroot ships it as a real directory on the
+# read-only root, so make it the conventional symlink to the /run tmpfs.
+if [ ! -L "$target_dir/var/run" ]; then
+  rm -rf "$target_dir/var/run"
+  ln -s /run "$target_dir/var/run"
+fi
+
 if [ -x "${NODEOS_INITD:-}" ]; then
   install -m 0755 "$NODEOS_INITD" "$target_dir/usr/bin/initd"
   ln -sf /usr/bin/initd "$target_dir/init"
@@ -45,6 +53,12 @@ sed -i -E "s|^([[:space:]]*profile:).*|\1 ${profile}|" "$noded_cfg"
   sed -i -E "s|^([[:space:]]*serverUrl:).*|\1 https://${NODEOS_EST_SERVER}|" "$noded_cfg"
 [ -n "${NODEOS_BOOTSTRAP_TOKEN:-}" ] && \
   sed -i -E "s|^([[:space:]]*bearerToken:).*|\1 ${NODEOS_BOOTSTRAP_TOKEN}|" "$noded_cfg"
+# kubelet's --hostname-override (k8s profile, in initd.toml) is the node FQDN —
+# keep it in sync with the node identity from .env, same as noded's nodeId.
+initd_cfg="$target_dir/etc/nodeos/initd.toml"
+if [ -f "$initd_cfg" ] && [ -n "${NODEOS_NODE_ID:-}" ]; then
+  sed -i -E "s|(--hostname-override\",[[:space:]]*\")[^\"]*|\1${NODEOS_NODE_ID}|" "$initd_cfg"
+fi
 # /etc/hosts: replace the EST server mapping (the single est.* entry) by removing
 # any existing one and appending the .env value. Idempotent across rebuilds.
 if [ -f "$hosts_file" ] && [ -n "${NODEOS_EST_SERVER:-}" ] && [ -n "${NODEOS_EST_SERVER_IP:-}" ]; then

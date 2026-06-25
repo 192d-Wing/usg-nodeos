@@ -43,7 +43,7 @@ mod pkcs11;
 mod workload;
 
 use pkcs11::{TpmIdentity, TpmPkcs11Config};
-use workload::{new_profile, WorkloadHealth, WorkloadProfile};
+use workload::{new_profile, NodeIntent, WorkloadHealth, WorkloadProfile};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,10 +325,11 @@ async fn run(config: Config) -> Result<()> {
 
     tokio::spawn(renewal_loop(config.clone(), resolver, tpm.clone()));
 
-    // Bring the workload to its desired state. Best-effort in Phase 1 (the k8s
-    // and kvm reconcilers are no-ops); a failure here must not stop the node from
-    // serving its management API, through which an operator can intervene.
-    if let Err(err) = workload.reconcile().await {
+    // Bring the workload to its desired state from the persisted node intent (a
+    // prior PUT /v1/config). Best-effort: a failure must not stop the node from
+    // serving its management API, through which an operator can (re)apply config.
+    let persisted_intent = load_node_intent();
+    if let Err(err) = workload.reconcile(persisted_intent.as_ref()).await {
         warn!(profile = workload.name(), error = %format!("{err:#}"), "workload reconcile failed; continuing");
     }
 
@@ -424,13 +425,63 @@ fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn put_config() -> impl IntoResponse {
-    // Authorization is enforced by the `authorize` middleware; the mutation
-    // logic itself is a separate follow-up.
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        "configuration mutation is authorized but not yet implemented",
-    )
+/// Persisted declarative node intent (on the encrypted state volume), re-applied
+/// at boot. Written by `PUT /v1/config`, read by `load_node_intent`.
+const NODE_INTENT_PATH: &str = "/var/lib/nodeos/k8s/node-intent.json";
+
+/// Load the persisted node intent, if any. Absent or unreadable/unparseable file
+/// → `None` (the node simply has no workload config yet).
+fn load_node_intent() -> Option<NodeIntent> {
+    let data = std::fs::read(NODE_INTENT_PATH).ok()?;
+    match serde_json::from_slice::<NodeIntent>(&data) {
+        Ok(intent) => Some(intent),
+        Err(err) => {
+            warn!(path = NODE_INTENT_PATH, error = %err, "ignoring unparseable persisted node intent");
+            None
+        }
+    }
+}
+
+/// `PUT /v1/config` — accept declarative node-join intent, validate, persist it
+/// durably, and reconcile the workload (render kubelet config; initd then starts
+/// kubelet). Authorization (Operator) is enforced by the `authorize` middleware;
+/// axum rejects malformed JSON with 422 before this runs.
+async fn put_config(
+    State(state): State<AppState>,
+    Json(intent): Json<NodeIntent>,
+) -> impl IntoResponse {
+    if let Err(err) = intent.validate() {
+        return (StatusCode::BAD_REQUEST, format!("invalid node intent: {err:#}\n"));
+    }
+
+    // Persist before reconciling so a reboot re-applies the same intent even if
+    // reconcile fails midway. Serialize the validated intent as canonical JSON.
+    let serialized = match serde_json::to_vec_pretty(&intent) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("serialize node intent: {err:#}\n"),
+            )
+        }
+    };
+    if let Err(err) = est::write_atomic(Path::new(NODE_INTENT_PATH), &serialized, true) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("persist node intent: {err:#}\n"),
+        );
+    }
+
+    match state.workload.reconcile(Some(&intent)).await {
+        Ok(()) => {
+            info!(target: "audit", api_server = %intent.api_server, "node intent applied");
+            (StatusCode::OK, "node intent applied\n".to_string())
+        }
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("reconcile workload: {err:#}\n"),
+        ),
+    }
 }
 
 /// The minimum role required for a request, or `None` for endpoints that need
@@ -971,15 +1022,30 @@ enrollment:
             status_for(&state, Method::GET, "/v1/status", Some("nobody")).await,
             StatusCode::FORBIDDEN
         );
-        // config: viewer insufficient (403); operator passes authz and reaches
-        // the not-yet-implemented handler (501).
+        // config: viewer insufficient (403, rejected before the handler runs).
         assert_eq!(
             status_for(&state, Method::PUT, "/v1/config", Some("viewer-id")).await,
             StatusCode::FORBIDDEN
         );
-        assert_eq!(
-            status_for(&state, Method::PUT, "/v1/config", Some("operator-id")).await,
-            StatusCode::NOT_IMPLEMENTED
-        );
+        // config: operator passes authz and reaches the handler; a structurally
+        // valid but semantically invalid intent is rejected with 400 (proving
+        // authz passed and the handler ran, without touching the filesystem).
+        let bad_intent =
+            r#"{"apiServer":"http://nope:6443","clusterCa":"x","bootstrapToken":"x"}"#;
+        let mut req = Request::builder()
+            .method(Method::PUT)
+            .uri("/v1/config")
+            .header("content-type", "application/json")
+            .body(Body::from(bad_intent))
+            .unwrap();
+        req.extensions_mut().insert(ClientIdentity {
+            common_name: Some("operator-id".into()),
+        });
+        let status = build_router(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 }
