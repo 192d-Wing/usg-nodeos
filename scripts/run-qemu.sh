@@ -66,9 +66,12 @@ fi
 
 # UEFI boot: no -kernel/-initrd/-append; OVMF loads EFI/BOOT/BOOTX64.EFI from the
 # ESP and the kernel uses its embedded cmdline (CONFIG_CMDLINE).
+# Memory: the whole rootfs is a RAM-resident initramfs, and the k8s image embeds
+# the container runtime (~270 MB uncompressed), so give it room (override with
+# NODEOS_MEM). Container workloads on a real node would size this much higher.
 exec qemu-system-x86_64 \
   -machine q35 \
-  -m 1024 \
+  -m "${NODEOS_MEM:-2048}" \
   -nographic \
   -drive "if=pflash,format=raw,unit=0,readonly=on,file=$ovmf_code" \
   -drive "if=pflash,format=raw,unit=1,file=$ovmf_vars" \

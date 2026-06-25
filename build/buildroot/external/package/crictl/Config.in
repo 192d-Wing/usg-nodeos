@@ -1,0 +1,9 @@
+config BR2_PACKAGE_CRICTL
+	bool "crictl"
+	depends on BR2_x86_64
+	help
+	  crictl, the CRI command-line client (cri-tools). Installs the official
+	  static linux/amd64 release archive from the kubernetes-sigs/cri-tools
+	  releases. Used to inspect/exercise the containerd CRI on a NodeOS k8s node.
+
+	  https://github.com/kubernetes-sigs/cri-tools

@@ -30,6 +30,14 @@ target = "/sys"
 fstype = "sysfs"
 flags = ["nodev", "nosuid", "noexec"]
 
+# cgroup v2 unified hierarchy: containerd + kubelet require it, and with no
+# systemd nothing else mounts it. Must be mounted after /sys.
+[[mounts]]
+source = "cgroup2"
+target = "/sys/fs/cgroup"
+fstype = "cgroup2"
+flags = ["nodev", "nosuid", "noexec"]
+
 [[mounts]]
 source = "run"
 target = "/run"
@@ -50,13 +58,6 @@ target = "/var/lib/kubelet"
 fstype = "tmpfs"
 flags = ["nodev", "nosuid"]
 data = "mode=0750,size=256m"
-
-[[mounts]]
-source = "containerd-state"
-target = "/var/lib/containerd"
-fstype = "tmpfs"
-flags = ["nodev", "nosuid"]
-data = "mode=0750,size=512m"
 
 [[mounts]]
 source = "logs"
@@ -80,6 +81,29 @@ mkfs = ["/sbin/mkfs.ext4", "-q", "-F"]
 # embedded initramfs + cmdline) that OVMF loaded; PCR 7 = secure-boot state.
 # The volume only unlocks when these match the provisioning-time values.
 encrypt = { name = "nodeos-state", tpmNvIndex = "0x01500001", pcrs = "sha256:4,7" }
+
+# Persistent container-image/runtime volume (k8s): containerd's image store +
+# snapshots survive reboots (no re-pull each boot — essential for airgap/scale).
+# Same LUKS-via-TPM measured-boot model as the state volume, on vda3 with a
+# distinct NV index. Formatted ext4 on first boot.
+[[disks]]
+device = "/dev/vda3"
+target = "/var/lib/containerd"
+fstype = "ext4"
+flags = ["nodev", "nosuid"]
+formatIfEmpty = true
+mkfs = ["/sbin/mkfs.ext4", "-q", "-F"]
+encrypt = { name = "nodeos-data", tpmNvIndex = "0x01500002", pcrs = "sha256:4,7" }
+
+# containerd first: its CRI socket gates dependent services (kubelet, added in
+# Phase 2b). readyWhen makes initd wait for the socket before starting the next
+# service. /run/containerd lives on the /run tmpfs.
+[[services]]
+name = "containerd"
+command = "/usr/bin/containerd"
+restart = "always"
+readyWhen = "/run/containerd/containerd.sock"
+readyTimeoutSecs = 30
 
 [[services]]
 name = "noded"

@@ -1,0 +1,2 @@
+name: NODEOS
+desc: NodeOS custom packages (Kubernetes node binaries not in Buildroot)

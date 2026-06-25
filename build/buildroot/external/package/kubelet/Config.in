@@ -1,0 +1,9 @@
+config BR2_PACKAGE_KUBELET
+	bool "kubelet"
+	depends on BR2_x86_64
+	help
+	  kubelet, the Kubernetes node agent. Installs the official static
+	  linux/amd64 release binary from dl.k8s.io (kubelet is not packaged in
+	  Buildroot). Used by the NodeOS k8s workload profile.
+
+	  https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/

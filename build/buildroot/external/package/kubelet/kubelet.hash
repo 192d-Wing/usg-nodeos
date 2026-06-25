@@ -1,0 +1,2 @@
+# From https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubelet.sha256
+sha256  3ba68cb4f0906053c08ab843131d5cec559cf8c718dbd679950a078b306abbb4  kubelet

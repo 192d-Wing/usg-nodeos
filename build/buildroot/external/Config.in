@@ -1,0 +1,2 @@
+source "$BR2_EXTERNAL_NODEOS_PATH/package/kubelet/Config.in"
+source "$BR2_EXTERNAL_NODEOS_PATH/package/crictl/Config.in"
