@@ -1328,7 +1328,6 @@ dependencies = [
  "cryptoki",
  "der",
  "hyper-util",
- "p256",
  "rand",
  "rustls",
  "rustls-pemfile",
