@@ -5,7 +5,10 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_base="${NODEOS_BUILD_BASE:-$HOME/.cache/nodeos-buildroot}"
-images_dir="${IMAGES_DIR:-$build_base/output/images}"
+# Images live in a per-profile output tree (see build-buildroot-image.sh). Select
+# with NODEOS_PROFILE (default k8s) or override IMAGES_DIR directly.
+profile="${NODEOS_PROFILE:-k8s}"
+images_dir="${IMAGES_DIR:-$build_base/output-$profile/images}"
 kernel="$images_dir/bzImage"
 initramfs="$images_dir/rootfs.cpio"
 
@@ -66,9 +69,12 @@ fi
 
 # UEFI boot: no -kernel/-initrd/-append; OVMF loads EFI/BOOT/BOOTX64.EFI from the
 # ESP and the kernel uses its embedded cmdline (CONFIG_CMDLINE).
+# Memory: the whole rootfs is a RAM-resident initramfs, and the k8s image embeds
+# the container runtime (~270 MB uncompressed), so give it room (override with
+# NODEOS_MEM). Container workloads on a real node would size this much higher.
 exec qemu-system-x86_64 \
   -machine q35 \
-  -m 1024 \
+  -m "${NODEOS_MEM:-2048}" \
   -nographic \
   -drive "if=pflash,format=raw,unit=0,readonly=on,file=$ovmf_code" \
   -drive "if=pflash,format=raw,unit=1,file=$ovmf_vars" \

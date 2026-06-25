@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -88,6 +88,20 @@ struct Service {
     args: Vec<String>,
     #[serde(default)]
     restart: RestartPolicy,
+    /// Optional readiness gate: a path that must appear before the NEXT service
+    /// in the list is started. Used to order dependent services without a full
+    /// dependency graph — e.g. kubelet waits for containerd's socket
+    /// (`/run/containerd/containerd.sock`). Polled up to `readyTimeoutSecs`; on
+    /// timeout initd logs a warning and proceeds (the dependent service is
+    /// expected to retry its own connection).
+    #[serde(default)]
+    ready_when: Option<PathBuf>,
+    #[serde(default = "default_ready_timeout_secs")]
+    ready_timeout_secs: u64,
+}
+
+fn default_ready_timeout_secs() -> u64 {
+    30
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
@@ -519,9 +533,40 @@ fn start_services(services: &[Service]) -> Result<Vec<RunningService>> {
             spec: service.clone(),
             child,
         });
+        // Order dependents: wait for this service's readiness marker (e.g. the
+        // containerd socket) before starting the next one. Best-effort — on
+        // timeout we proceed and let the dependent service retry.
+        if let Some(marker) = &service.ready_when {
+            await_ready(&service.name, marker, service.ready_timeout_secs);
+        }
     }
 
     Ok(running)
+}
+
+/// How often `await_ready` polls for the readiness marker.
+const READY_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Poll for a readiness marker path, up to `timeout_secs`. Logs the outcome. The
+/// marker is checked at least once even when `timeout_secs` is 0 (check-once).
+fn await_ready(service: &str, marker: &Path, timeout_secs: u64) {
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        if marker.exists() {
+            info!(service, marker = %marker.display(), "service ready");
+            return;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(READY_POLL_INTERVAL);
+    }
+    warn!(
+        service,
+        marker = %marker.display(),
+        timeout_secs,
+        "readiness marker did not appear before timeout; starting dependents anyway"
+    );
 }
 
 fn supervise(services: &mut Vec<RunningService>) -> Result<()> {
@@ -760,5 +805,7 @@ fn default_services() -> Vec<Service> {
         command: PathBuf::from("/usr/bin/noded"),
         args: vec!["/etc/nodeos/noded.yaml".to_string()],
         restart: RestartPolicy::Always,
+        ready_when: None,
+        ready_timeout_secs: default_ready_timeout_secs(),
     }]
 }

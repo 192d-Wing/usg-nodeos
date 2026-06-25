@@ -68,3 +68,28 @@ do
   fi
 done
 
+# Profile isolation: a profile's image must not carry another profile's workload
+# binaries. Buildroot's target dir is incremental and does not remove de-selected
+# packages, so building two profiles into one output tree leaks (e.g.) the k8s
+# runtime into a kvm image. Per-profile output dirs prevent this; this guard
+# makes a dirty tree fail loudly instead of shipping a bloated/incorrect image.
+if [ "$profile" != "k8s" ]; then
+  # Every artifact the k8s fragment installs: the runtime binaries AND runc + the
+  # CNI plugin dir. Missing any of these lets a leaked image slip past the guard.
+  for k8s_path in \
+    /usr/bin/containerd \
+    /usr/bin/containerd-shim-runc-v2 \
+    /usr/bin/ctr \
+    /usr/bin/runc \
+    /usr/bin/kubelet \
+    /usr/bin/crictl \
+    /opt/cni/bin
+  do
+    if [ -e "$target_dir$k8s_path" ]; then
+      echo "profile leak: '$profile' image contains k8s runtime path $k8s_path" >&2
+      echo "       (build each profile in its own buildroot output tree)" >&2
+      exit 1
+    fi
+  done
+fi
+

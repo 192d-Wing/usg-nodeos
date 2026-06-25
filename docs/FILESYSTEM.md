@@ -21,14 +21,21 @@ The only expected writable paths are:
 
 - `/run`: tmpfs runtime state
 - `/tmp`: tmpfs scratch space
-- `/var/lib/nodeos`: node identity and management state
-- `/var/lib/kubelet`: kubelet state
-- `/var/lib/containerd`: container runtime state
+- `/sys/fs/cgroup`: cgroup v2 unified hierarchy (k8s profile)
+- `/var/lib/nodeos`: node identity and management state (persistent, encrypted)
+- `/var/lib/kubelet`: kubelet state (tmpfs — reconstructible on rejoin)
+- `/var/lib/containerd`: container image store + runtime state (k8s profile;
+  persistent, encrypted — images survive reboot)
 - `/var/log`: logs
 
-The first QEMU prototype mounts these writable paths as tmpfs. Later hardware
-targets should move durable state to explicit signed/encrypted state
-partitions.
+Durable state lives on LUKS-encrypted partitions whose keys are sealed in the
+TPM to the measured-boot PCRs (see [BOOT.md](BOOT.md)):
+
+- `vda2` (`nodeos-state`) → `/var/lib/nodeos` — both profiles.
+- `vda3` (`nodeos-data`) → `/var/lib/containerd` — k8s profile only (the kvm
+  profile leaves `vda3` unused).
+
+Ephemeral paths (`/run`, `/tmp`, `/var/lib/kubelet`, `/var/log`) are tmpfs.
 
 ## Checks
 
