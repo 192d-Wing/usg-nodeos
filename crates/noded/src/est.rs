@@ -361,6 +361,7 @@ mod tests {
         Config {
             listen_addr: "[::1]:9443".parse::<SocketAddr>().unwrap(),
             node_id: "qemu-node-001".to_string(),
+            profile: Default::default(),
             cert_file: PathBuf::from("/etc/nodeos/pki/server.crt"),
             key_file: PathBuf::from("/etc/nodeos/pki/server.key"),
             client_ca: PathBuf::from("/etc/nodeos/pki/client-ca.crt"),

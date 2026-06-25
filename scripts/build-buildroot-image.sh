@@ -15,13 +15,46 @@ if [ -f "$repo_root/.env" ]; then
   set +a
 fi
 
+# Workload profile selects the image variant from one shared tree: k8s
+# (Kubernetes node) or kvm (bare-metal KVM/libvirt hypervisor). It picks the
+# rootfs overlay and — when they diverge — the defconfig and kernel config. The
+# hardened base (boot, identity, mTLS API) is identical across profiles.
+profile="${NODEOS_PROFILE:-k8s}"
+case "$profile" in
+  k8s | kvm) ;;
+  *)
+    echo "error: NODEOS_PROFILE must be 'k8s' or 'kvm' (got '$profile')" >&2
+    exit 1
+    ;;
+esac
+
 build_base="${NODEOS_BUILD_BASE:-$HOME/.cache/nodeos-buildroot}"
 buildroot_dir="${BUILDROOT_DIR:-$build_base/source}"
 output_dir="${BUILDROOT_OUTPUT_DIR:-$build_base/output}"
 dl_dir="${BUILDROOT_DL_DIR:-$build_base/dl}"
-defconfig="${DEFCONFIG:-$repo_root/build/buildroot/qemu-x86_64.defconfig}"
-generated_defconfig="$build_base/nodeos.defconfig"
 host_bin="$build_base/host-bin"
+
+# Resolve a profile-specific build input, falling back to the shared base file
+# when no per-profile variant exists yet. This keeps identical files shared (no
+# drift) while letting a profile diverge by simply adding its own copy.
+br="$repo_root/build/buildroot"
+pick_profile_file() {
+  # $1 = base path (no profile), $2 = profile-suffixed path
+  if [ -e "$2" ]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+}
+defconfig="${DEFCONFIG:-$(pick_profile_file \
+  "$br/qemu-x86_64.defconfig" "$br/qemu-x86_64-$profile.defconfig")}"
+kernel_config="$(pick_profile_file \
+  "$br/qemu-x86_64-linux.config" "$br/qemu-x86_64-linux-$profile.config")"
+# The shared base overlay is always applied first; the profile overlay layers on
+# top (buildroot accepts a space-separated BR2_ROOTFS_OVERLAY list).
+overlays="$br/overlay-base $br/overlay-$profile"
+generated_defconfig="$build_base/nodeos.defconfig"
+
+echo "NodeOS build profile: $profile"
+echo "  defconfig:     $defconfig"
+echo "  kernel config: $kernel_config"
+echo "  overlays:      $overlays"
 
 mkdir -p "$host_bin" "$output_dir" "$dl_dir"
 if [ -x /usr/bin/gnuinstall ]; then
@@ -45,9 +78,9 @@ fi
 "$repo_root/scripts/check-wsl-prereqs.sh"
 
 sed \
-  -e "s|^BR2_ROOTFS_OVERLAY=.*|BR2_ROOTFS_OVERLAY=\"$repo_root/build/buildroot/overlay\"|" \
+  -e "s|^BR2_ROOTFS_OVERLAY=.*|BR2_ROOTFS_OVERLAY=\"$overlays\"|" \
   -e "s|^BR2_ROOTFS_POST_BUILD_SCRIPT=.*|BR2_ROOTFS_POST_BUILD_SCRIPT=\"$repo_root/build/buildroot/post-build.sh\"|" \
-  -e "s|^BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE=.*|BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE=\"$repo_root/build/buildroot/qemu-x86_64-linux.config\"|" \
+  -e "s|^BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE=.*|BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE=\"$kernel_config\"|" \
   "$defconfig" > "$generated_defconfig"
 
 if ! grep -q '^BR2_DL_DIR=' "$generated_defconfig"; then
@@ -71,6 +104,8 @@ export NODEOS_CROSS_GCC="$cross_gcc"
 
 export NODEOS_INITD="$repo_root/target/release/initd"
 export NODEOS_NODED="$repo_root/target/release/noded"
+# post-build.sh runs profile-specific finalization checks.
+export NODEOS_PROFILE="$profile"
 
 # Force target-finalize so the overlay copy + post-build (which inject the .env
 # values into the image config) always re-run. Buildroot otherwise skips finalize

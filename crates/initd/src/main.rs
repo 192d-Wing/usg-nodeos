@@ -742,18 +742,16 @@ fn init_tracing() {
         .init();
 }
 
+/// Workload-agnostic directories every NodeOS image needs. Profile-specific
+/// paths (e.g. `/var/lib/kubelet` + `/var/lib/containerd` for k8s, `/var/lib/
+/// libvirt` for kvm) are declared in the per-profile overlay's `initd.toml`
+/// (typically as mount targets, which `apply_mounts` creates) so `initd` itself
+/// stays ignorant of the workload.
 fn default_required_dirs() -> Vec<PathBuf> {
-    [
-        "/run",
-        "/tmp",
-        "/var/lib/nodeos",
-        "/var/lib/kubelet",
-        "/var/lib/containerd",
-        "/var/log",
-    ]
-    .into_iter()
-    .map(PathBuf::from)
-    .collect()
+    ["/run", "/tmp", "/var/lib/nodeos", "/var/log"]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect()
 }
 
 fn default_services() -> Vec<Service> {

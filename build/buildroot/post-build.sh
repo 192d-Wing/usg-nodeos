@@ -3,6 +3,11 @@ set -eu
 
 target_dir="${TARGET_DIR:?TARGET_DIR is required}"
 
+# Workload profile this image was built for (k8s | kvm). Exported by
+# build-buildroot-image.sh; defaults to k8s for a standalone buildroot invocation.
+profile="${NODEOS_PROFILE:-k8s}"
+echo "post-build: NodeOS profile = $profile"
+
 mkdir -p "$target_dir/etc/nodeos/pki"
 mkdir -p "$target_dir/usr/bin"
 
@@ -54,4 +59,16 @@ do
     exit 1
   fi
 done
+
+# Fail closed on a profile/overlay mismatch: the baked noded.yaml must declare
+# the profile this image was built for, so `noded` drives the matching workload.
+# (k8s is the schema default, so an absent line is treated as k8s.)
+if [ -f "$noded_cfg" ]; then
+  baked_profile="$(sed -n -E 's|^[[:space:]]*profile:[[:space:]]*([A-Za-z0-9]+).*|\1|p' "$noded_cfg" | head -n1)"
+  baked_profile="${baked_profile:-k8s}"
+  if [ "$baked_profile" != "$profile" ]; then
+    echo "profile mismatch: image built for '$profile' but noded.yaml declares '$baked_profile'" >&2
+    exit 1
+  fi
+fi
 

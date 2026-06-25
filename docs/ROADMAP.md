@@ -28,13 +28,21 @@
 - Persist only explicit writable state
 - Verify no SSH, shell, or package manager exists in production image
 
-## Phase 3: Kubernetes Node
+## Phase 3: Kubernetes Node (k8s profile)
 
 - Add containerd
 - Add kubelet
 - Join a Kubernetes cluster from declarative config
 - Enforce CIS-oriented kubelet defaults
 - Export compliance evidence from the node API
+
+## Phase 3b: KVM Hypervisor Node (kvm profile)
+
+- Factor the workload layer out of the shared base (profile seam — done)
+- Add libvirt + QEMU/KVM to the kvm image
+- Reconcile declarative VM domains via the node API
+- Report libvirtd + per-domain state through `/v1/status`
+- Same TPM-backed enrollment, mTLS API, and immutable-root posture as k8s
 
 ## Phase 4: Fleet Controller
 

@@ -14,6 +14,7 @@ fips = ["usg-est-client/fips", "rustls/fips"]
 
 [dependencies]
 anyhow.workspace = true
+async-trait = "0.1"
 axum.workspace = true
 der.workspace = true
 hyper-util.workspace = true
