@@ -10,11 +10,14 @@
 //! join) lands in Phase 2; the kvm workload (libvirtd + guest lifecycle) in
 //! Phase 3.
 
+use std::net::{IpAddr, Ipv6Addr};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use der::DecodePem;
 use serde::{Deserialize, Serialize};
+use x509_cert::Certificate;
 
 use crate::Profile;
 
@@ -59,23 +62,62 @@ impl NodeIntent {
     /// config checks: IPv6-only + https for the API server, a well-formed
     /// bootstrap token, and a parseable CA bundle.
     pub fn validate(&self) -> Result<()> {
-        // IPv6-only node: the API server must be an https URL with a bracketed
-        // IPv6 literal authority (https://[..]:port).
-        if !self.api_server.starts_with("https://[") {
-            return Err(anyhow!(
-                "apiServer must be an https URL with an IPv6 literal host, e.g. https://[2001:db8::1]:6443"
-            ));
-        }
+        // IPv6-only node: the API server must be https with a *parseable*
+        // bracketed IPv6 literal authority (not just the prefix). Validating the
+        // host also keeps it safe to interpolate into the rendered kubeconfig.
+        validate_api_server(&self.api_server)?;
         if !valid_bootstrap_token(&self.bootstrap_token) {
             return Err(anyhow!(
                 "bootstrapToken must match [a-z0-9]{{6}}.[a-z0-9]{{16}}"
             ));
         }
-        if !self.cluster_ca.contains("-----BEGIN CERTIFICATE-----") {
-            return Err(anyhow!("clusterCa must be a PEM-encoded certificate bundle"));
+        // Real PEM/DER parse, not a substring check, so a corrupt bundle is
+        // rejected at the API boundary rather than failing kubelet's TLS later.
+        Certificate::from_pem(self.cluster_ca.as_bytes())
+            .map_err(|err| anyhow!("clusterCa is not a valid PEM certificate: {err}"))?;
+        // A node needs in-cluster DNS; an empty list would silently disable it.
+        if self.cluster_dns.is_empty() {
+            return Err(anyhow!("clusterDNS must list at least one DNS address"));
+        }
+        for addr in &self.cluster_dns {
+            addr.parse::<IpAddr>()
+                .map_err(|_| anyhow!("clusterDNS entry is not an IP address: {addr}"))?;
+        }
+        if self.cluster_domain.is_empty()
+            || !self
+                .cluster_domain
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        {
+            return Err(anyhow!("clusterDomain must be a DNS name"));
         }
         Ok(())
     }
+}
+
+/// Validate the API server URL: `https://[<ipv6>]` with an optional `:port`. The
+/// host must parse as an IPv6 address (the node is IPv6-only).
+fn validate_api_server(url: &str) -> Result<()> {
+    let rest = url
+        .strip_prefix("https://")
+        .ok_or_else(|| anyhow!("apiServer must use https"))?;
+    if !rest.starts_with('[') {
+        return Err(anyhow!(
+            "apiServer host must be a bracketed IPv6 literal, e.g. https://[2001:db8::1]:6443"
+        ));
+    }
+    let close = rest
+        .find(']')
+        .ok_or_else(|| anyhow!("apiServer IPv6 literal is missing its closing ']'"))?;
+    rest[1..close]
+        .parse::<Ipv6Addr>()
+        .map_err(|_| anyhow!("apiServer host is not a valid IPv6 address: {}", &rest[1..close]))?;
+    // Anything after ']' must be an optional ":<port>".
+    let tail = &rest[close + 1..];
+    if !tail.is_empty() && !tail.starts_with(':') {
+        return Err(anyhow!("apiServer has unexpected data after the IPv6 host"));
+    }
+    Ok(())
 }
 
 /// A kubeadm-style bootstrap token: `<6 lowercase-alnum>.<16 lowercase-alnum>`.

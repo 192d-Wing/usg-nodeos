@@ -163,8 +163,8 @@ mod tests {
     fn sample_intent() -> NodeIntent {
         NodeIntent {
             api_server: "https://[2001:db8::1]:6443".to_string(),
-            cluster_ca: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
-                .to_string(),
+            // A real PEM cert so NodeIntent::validate's from_pem parse succeeds.
+            cluster_ca: include_str!("../../tests/fixtures/node.pem").to_string(),
             bootstrap_token: "abcdef.0123456789abcdef".to_string(),
             cluster_dns: vec!["fd00::a".to_string()],
             cluster_domain: "cluster.local".to_string(),
@@ -192,6 +192,19 @@ mod tests {
         let mut bad = sample_intent();
         bad.bootstrap_token = "abc.0123456789abcdef".to_string();
         assert!(bad.validate().is_err(), "short token id rejected");
+
+        let mut bad = sample_intent();
+        bad.cluster_ca = "-----BEGIN CERTIFICATE-----\nnot-der\n-----END CERTIFICATE-----\n"
+            .to_string();
+        assert!(bad.validate().is_err(), "non-DER CA rejected");
+
+        let mut bad = sample_intent();
+        bad.cluster_dns = vec![];
+        assert!(bad.validate().is_err(), "empty clusterDNS rejected");
+
+        let mut bad = sample_intent();
+        bad.cluster_dns = vec!["not-an-ip".to_string()];
+        assert!(bad.validate().is_err(), "non-IP clusterDNS rejected");
     }
 
     #[test]
