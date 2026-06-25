@@ -65,12 +65,22 @@ if [ -n "${NODEOS_CROSS_GCC:-}" ]; then
     fi
     fips_cc_version="$("$fips_cc" --version | head -1)"
     echo "FIPS aws-lc compiler: $fips_cc_version"
-    if [ -n "${NODEOS_FIPS_CLANG_VERSION:-}" ] \
-       && ! printf '%s' "$fips_cc_version" | grep -qF "clang version ${NODEOS_FIPS_CLANG_VERSION}"; then
-      echo "error: NODEOS_FIPS_CLANG_VERSION pinned to ${NODEOS_FIPS_CLANG_VERSION}," >&2
-      echo "       but '$fips_cc' reports: $fips_cc_version" >&2
-      echo "       Install the CMVP-validated clang or unset the pin to override." >&2
-      exit 1
+    # Match the pin against the parsed "clang version X.Y.Z" as a WHOLE version
+    # (exact, or a `major[.minor]` prefix) — not a substring. A substring match
+    # would let "21.1.8" accept "21.1.80" and "2" accept "21.x", defeating the
+    # fail-closed intent.
+    fips_cc_actual="$(printf '%s' "$fips_cc_version" |
+      sed -n 's/.*clang version \([0-9][0-9.]*\).*/\1/p')"
+    if [ -n "${NODEOS_FIPS_CLANG_VERSION:-}" ]; then
+      case "$fips_cc_actual" in
+        "$NODEOS_FIPS_CLANG_VERSION" | "$NODEOS_FIPS_CLANG_VERSION".*) ;;
+        *)
+          echo "error: NODEOS_FIPS_CLANG_VERSION pinned to ${NODEOS_FIPS_CLANG_VERSION}," >&2
+          echo "       but '$fips_cc' reports ${fips_cc_actual:-<unparsed>} ($fips_cc_version)." >&2
+          echo "       Install the CMVP-validated clang or unset the pin to override." >&2
+          exit 1
+          ;;
+      esac
     fi
     clang_cross="--target=$triple --sysroot=$sysroot --gcc-toolchain=$host_dir"
     export CC_x86_64_unknown_linux_gnu="$fips_cc"
