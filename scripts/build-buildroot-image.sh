@@ -82,6 +82,26 @@ fi
 
 "$repo_root/scripts/check-wsl-prereqs.sh"
 
+# The defconfig pins a custom kernel version. Buildroot normally exempts the
+# kernel from hash checking (BR_NO_CHECK_HASH_FOR in linux/linux.mk), but
+# BR2_DOWNLOAD_FORCE_CHECK_HASHES overrides that and demands a hash — and ships
+# none for a custom version, so a clean build fails ("No hash found for
+# linux-<ver>.tar.xz"). Register the NodeOS-pinned hash (the linux package's hash
+# file is linux/linux.hash and does not exist by default, so create it). Keep
+# hash-checking ON for reproducibility. Keep $nodeos_kernel_version in sync with
+# BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE in the base defconfig.
+# NOTE (ATO): cross-check this sha256 against kernel.org's published hash.
+nodeos_kernel_version="7.1"
+nodeos_kernel_sha256="691f44797fbe790dc8a321604c927087526ad27b6d649925d60f8eed0a2564a0"
+linux_hash_file="$buildroot_dir/linux/linux.hash"
+if ! grep -qs "linux-$nodeos_kernel_version.tar.xz" "$linux_hash_file"; then
+  echo "registering NodeOS-pinned hash for linux-$nodeos_kernel_version.tar.xz"
+  {
+    echo "# NodeOS-pinned custom kernel (registered by build-buildroot-image.sh)"
+    echo "sha256  $nodeos_kernel_sha256  linux-$nodeos_kernel_version.tar.xz"
+  } >> "$linux_hash_file"
+fi
+
 sed \
   -e "s|^BR2_ROOTFS_OVERLAY=.*|BR2_ROOTFS_OVERLAY=\"$overlays\"|" \
   -e "s|^BR2_ROOTFS_POST_BUILD_SCRIPT=.*|BR2_ROOTFS_POST_BUILD_SCRIPT=\"$repo_root/build/buildroot/post-build.sh\"|" \
