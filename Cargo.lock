@@ -1328,6 +1328,7 @@ dependencies = [
  "cryptoki",
  "der",
  "hyper-util",
+ "p256",
  "rand",
  "rustls",
  "rustls-pemfile",
@@ -2664,8 +2665,8 @@ dependencies = [
 
 [[package]]
 name = "usg-est-client"
-version = "2.1.0"
-source = "git+https://github.com/192d-Wing/usg-est-client?tag=v2.1.0#e9a1761d88e303ed2bca39136ac50239994d50ab"
+version = "2.1.1"
+source = "git+https://github.com/192d-Wing/usg-est-client?tag=v2.1.1#9f1c3e44226265633c064531ef6afa78569ffd03"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
