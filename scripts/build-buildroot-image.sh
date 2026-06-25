@@ -30,7 +30,11 @@ esac
 
 build_base="${NODEOS_BUILD_BASE:-$HOME/.cache/nodeos-buildroot}"
 buildroot_dir="${BUILDROOT_DIR:-$build_base/source}"
-output_dir="${BUILDROOT_OUTPUT_DIR:-$build_base/output}"
+# Per-profile output tree: buildroot's target dir is incremental and does NOT
+# remove files from packages you de-select, so building two profiles into one
+# tree leaks (e.g.) the k8s runtime into the kvm image. Isolate them. The source
+# clone + download cache are shared; only the build/target/images are per-profile.
+output_dir="${BUILDROOT_OUTPUT_DIR:-$build_base/output-$profile}"
 dl_dir="${BUILDROOT_DL_DIR:-$build_base/dl}"
 host_bin="$build_base/host-bin"
 

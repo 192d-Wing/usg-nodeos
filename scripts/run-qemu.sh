@@ -5,7 +5,10 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_base="${NODEOS_BUILD_BASE:-$HOME/.cache/nodeos-buildroot}"
-images_dir="${IMAGES_DIR:-$build_base/output/images}"
+# Images live in a per-profile output tree (see build-buildroot-image.sh). Select
+# with NODEOS_PROFILE (default k8s) or override IMAGES_DIR directly.
+profile="${NODEOS_PROFILE:-k8s}"
+images_dir="${IMAGES_DIR:-$build_base/output-$profile/images}"
 kernel="$images_dir/bzImage"
 initramfs="$images_dir/rootfs.cpio"
 

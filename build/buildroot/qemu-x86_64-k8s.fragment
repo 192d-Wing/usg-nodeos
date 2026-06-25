@@ -1,9 +1,10 @@
 # NodeOS k8s profile — buildroot package deltas merged onto the base defconfig.
-# The Kubernetes node runtime: containerd + runc + CNI plugins (Buildroot
-# in-tree), plus kubelet + crictl from the NodeOS BR2_EXTERNAL tree (not packaged
-# in Buildroot). The kvm profile omits this fragment and stays on the base.
-BR2_PACKAGE_CONTAINERD=y
+# The Kubernetes node runtime: runc + CNI plugins (Buildroot in-tree), containerd
+# pinned to 2.3.x via the NodeOS BR2_EXTERNAL static binary (Buildroot in-tree is
+# 2.0.x), plus kubelet + crictl (not packaged in Buildroot). The kvm profile
+# omits this fragment and stays on the base.
 BR2_PACKAGE_RUNC=y
 BR2_PACKAGE_CNI_PLUGINS=y
+BR2_PACKAGE_CONTAINERD_BIN=y
 BR2_PACKAGE_KUBELET=y
 BR2_PACKAGE_CRICTL=y

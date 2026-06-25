@@ -1,0 +1,11 @@
+config BR2_PACKAGE_CONTAINERD_BIN
+	bool "containerd (static binary)"
+	depends on BR2_x86_64
+	help
+	  containerd container runtime, installed from the official static
+	  linux/amd64 release (bundles containerd, containerd-shim-runc-v2, ctr).
+	  Pinned independently of Buildroot's in-tree containerd so the NodeOS k8s
+	  profile can track the desired version (2.3.x). Disable BR2_PACKAGE_CONTAINERD
+	  (the in-tree 2.0.x package) when using this.
+
+	  https://containerd.io
