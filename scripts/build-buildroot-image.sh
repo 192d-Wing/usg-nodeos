@@ -39,8 +39,15 @@ host_bin="$build_base/host-bin"
 # drift) while letting a profile diverge by simply adding its own copy.
 br="$repo_root/build/buildroot"
 pick_profile_file() {
-  # $1 = base path (no profile), $2 = profile-suffixed path
-  if [ -e "$2" ]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+  # $1 = base path (no profile), $2 = profile-suffixed path. Prefer the
+  # profile-specific file; otherwise fall back to the shared base and say so, so
+  # a missing per-profile variant is visible rather than silently using the base.
+  if [ -e "$2" ]; then
+    printf '%s' "$2"
+  else
+    echo "note: no $(basename "$2") for profile '$profile'; using shared $(basename "$1")" >&2
+    printf '%s' "$1"
+  fi
 }
 defconfig="${DEFCONFIG:-$(pick_profile_file \
   "$br/qemu-x86_64.defconfig" "$br/qemu-x86_64-$profile.defconfig")}"

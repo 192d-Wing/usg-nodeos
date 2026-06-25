@@ -69,7 +69,7 @@ impl ComponentHealth {
     fn from_binary(name: &str, binary: &str) -> Self {
         ComponentHealth {
             name: name.to_string(),
-            present: std::path::Path::new(binary).exists(),
+            present: crate::path_exists(binary),
             running: false,
         }
     }

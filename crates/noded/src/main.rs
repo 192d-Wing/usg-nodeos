@@ -773,7 +773,7 @@ fn install_crypto_provider() -> Result<()> {
     Ok(())
 }
 
-fn path_exists(path: &str) -> bool {
+pub(crate) fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
 }
 

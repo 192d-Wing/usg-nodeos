@@ -1,8 +1,10 @@
 listenAddr: "[::1]:9443"
 nodeId: qemu-node-001.example.com
-# Workload profile for this image. k8s = Kubernetes node (containerd + kubelet).
-# Selected to match the image's package set + overlay; the base OS (boot,
-# identity, mTLS API) is identical across profiles.
+# Workload profile for this image (k8s | kvm). This is the single source of
+# truth at runtime: post-build.sh overwrites it with $NODEOS_PROFILE so it always
+# matches the image's package set + overlay. The committed value is the default
+# for a standalone buildroot invocation. The base OS (boot, identity, mTLS API)
+# is identical across profiles.
 profile: k8s
 # Enrolled identity lives on writable state (the root filesystem is read-only).
 # Only the baked-in EST trust anchor (caCertFile) stays under read-only /etc.
